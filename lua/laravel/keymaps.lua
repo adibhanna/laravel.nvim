@@ -282,9 +282,66 @@ local function setup_laravel_keymaps()
     })
 end
 
+-- Helper: Create the Laravel-aware gd handler
+local function make_gd_handler()
+    return function()
+        -- Check if we're in a Laravel project
+        if not (_G.laravel_nvim and _G.laravel_nvim.project_root) then
+            -- Not in Laravel project, use default LSP
+            if vim.lsp.buf.definition then
+                vim.lsp.buf.definition()
+            else
+                vim.cmd('normal! gd')
+            end
+            return
+        end
+
+        -- Check if this looks like a Laravel-specific pattern first
+        local navigate = require('laravel.navigate')
+        if navigate.is_laravel_navigation_context() then
+            local success = pcall(navigate.goto_laravel_string)
+            if success then
+                return
+            end
+        end
+
+        -- Default to LSP definition for everything else
+        if vim.lsp.buf.definition then
+            vim.lsp.buf.definition()
+        else
+            vim.cmd('normal! gd')
+        end
+    end
+end
+
+-- Re-apply gd override on LspAttach so it takes precedence over
+-- LSP plugins (Snacks Picker, etc.) that set gd on the same event
+local function setup_lsp_attach_override()
+    vim.api.nvim_create_autocmd('LspAttach', {
+        callback = function(args)
+            local bufnr = args.buf
+            local ft = vim.bo[bufnr].filetype
+
+            -- Only override for filetypes where laravel.nvim manages gd
+            if ft == 'php' or ft == 'blade' or ft == 'javascript' or ft == 'typescript'
+                or ft == 'javascriptreact' or ft == 'typescriptreact' then
+                if _G.laravel_nvim and _G.laravel_nvim.project_root then
+                    vim.keymap.set('n', 'gd', make_gd_handler(), {
+                        noremap = true,
+                        silent = true,
+                        buffer = bufnr,
+                        desc = 'Laravel: Go to definition (Laravel strings or LSP)',
+                    })
+                end
+            end
+        end,
+    })
+end
+
 -- Main setup function
 function M.setup()
     setup_laravel_keymaps()
+    setup_lsp_attach_override()
 end
 
 return M

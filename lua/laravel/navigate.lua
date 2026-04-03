@@ -8,6 +8,13 @@ local ts_utils = {}
 
 -- Check if treesitter is available and get parser
 function ts_utils.get_parser()
+    -- Try Neovim's built-in treesitter API first (0.9+)
+    local ok, parser = pcall(vim.treesitter.get_parser, 0)
+    if ok and parser then
+        return parser, nil
+    end
+
+    -- Fallback: try nvim-treesitter plugin
     local has_ts, ts = pcall(require, 'nvim-treesitter.parsers')
     if not has_ts then
         return nil
@@ -18,7 +25,7 @@ function ts_utils.get_parser()
         return nil
     end
 
-    local parser = ts.get_parser()
+    parser = ts.get_parser()
     if not parser then
         return nil
     end
@@ -361,7 +368,7 @@ function ts_utils.parse_scoped_call_node(node)
         return nil
     end
 
-    return ts_utils.create_laravel_call_info(method_name, scope_name, nil, string_args, 'scoped')
+    return ts_utils.create_laravel_call_info(method_name, scope_name, method_name, string_args, 'scoped')
 end
 
 -- Parse a member_call_expression node (e.g., $route->name())
@@ -525,7 +532,7 @@ function ts_utils.create_laravel_call_info(function_name, scope_name, method_nam
         return nil
     end
 
-    -- Map Laravel functions to navigation types (same as before)
+    -- Map Laravel functions to navigation types
     local laravel_functions = {
         -- Navigation helpers
         route = 'route',
@@ -580,6 +587,13 @@ function ts_utils.create_laravel_call_info(function_name, scope_name, method_nam
         where = 'route_constraint',
     }
 
+    -- Scoped calls where the second string arg is a view/component name
+    local scoped_view_methods = {
+        ['route:inertia'] = true,
+        ['route:view'] = true,
+        ['volt:route'] = true,
+    }
+
     local func_type = nil
     local target_string = nil
 
@@ -592,15 +606,29 @@ function ts_utils.create_laravel_call_info(function_name, scope_name, method_nam
     elseif call_type == 'scoped' and scope_name and method_name then
         local scope_lower = scope_name:lower()
         local method_lower = method_name:lower()
+        local scoped_key = scope_lower .. ':' .. method_lower
 
-        -- Route static methods
-        if scope_lower == 'route' then
-            if method_lower == 'inertia' and #string_args >= 2 then
-                func_type = 'view'
-                target_string = string_args[2] -- Second argument is the view name
-            elseif method_lower:match('^(get|post|put|patch|delete|options|head|any|match|redirect|view|resource|apiresource)$') then
-                func_type = 'route'
-                target_string = string_args[1] -- First argument is usually the URI
+        -- Scoped calls where second arg is a view name
+        if scoped_view_methods[scoped_key] and #string_args >= 2 then
+            func_type = 'view'
+            target_string = string_args[2]
+
+            -- Route static methods
+        elseif scope_lower == 'route' then
+            if method_lower == 'controller' and #string_args >= 1 then
+                -- Route::controller(SomeController::class) - navigate to controller
+                func_type = 'controller'
+                target_string = string_args[1]
+            elseif method_lower:match('^(get|post|put|patch|delete|options|head|any|match|redirect|resource|apiresource)$') then
+                -- Check if second arg is a controller method name (used in Route::controller() groups)
+                -- Method names are lowercase identifiers without dots or slashes
+                if #string_args >= 2 and string_args[2]:match('^[%l_][%w_]*$') then
+                    func_type = 'controller_method'
+                    target_string = string_args[2]
+                else
+                    func_type = 'route'
+                    target_string = string_args[1] -- First argument is usually the URI
+                end
             end
 
             -- Inertia static methods
@@ -650,6 +678,38 @@ function ts_utils.create_laravel_call_info(function_name, scope_name, method_nam
             method_name = method_name,
             all_args = string_args
         }
+    end
+
+    return nil
+end
+
+-- Find the controller class from a Route::controller() group by walking up the AST
+function ts_utils.find_controller_from_group(node)
+    if not node then
+        return nil
+    end
+
+    local current = node:parent()
+    local depth = 0
+
+    while current and depth < 20 do
+        -- Look for member_call_expression or scoped_call_expression containing "controller"
+        local node_text = ts_utils.get_node_text_safe(current)
+        if node_text then
+            -- Check for Route::controller(SomeController::class) pattern
+            local controller = node_text:match('Route%s*::%s*controller%s*%(([%w_]+)%s*::%s*class%)')
+            if controller then
+                return controller
+            end
+            -- Also check for ->controller(SomeController::class) chained pattern
+            controller = node_text:match('->%s*controller%s*%(([%w_]+)%s*::%s*class%)')
+            if controller then
+                return controller
+            end
+        end
+
+        current = current:parent()
+        depth = depth + 1
     end
 
     return nil
@@ -866,6 +926,13 @@ function ts_utils.extract_call_info(match, query)
     local func_type = nil
     local target_string = nil
 
+    -- Scoped calls where the second string arg is a view/component name
+    local scoped_view_methods = {
+        ['route:inertia'] = true,
+        ['route:view'] = true,
+        ['volt:route'] = true,
+    }
+
     -- Handle function calls
     if call_type == 'function' and function_name then
         func_type = laravel_functions[function_name]
@@ -875,15 +942,26 @@ function ts_utils.extract_call_info(match, query)
     elseif call_type == 'scoped' and scope_name and method_name then
         local scope_lower = scope_name:lower()
         local method_lower = method_name:lower()
+        local scoped_key = scope_lower .. ':' .. method_lower
 
-        -- Route static methods
-        if scope_lower == 'route' then
-            if method_lower == 'inertia' and #string_args >= 2 then
-                func_type = 'view'
-                target_string = string_args[2] -- Second argument is the view name
-            elseif method_lower:match('^(get|post|put|patch|delete|options|head|any|match|redirect|view|resource|apiresource)$') then
-                func_type = 'route'
-                target_string = string_args[1] -- First argument is usually the URI
+        -- Scoped calls where second arg is a view name
+        if scoped_view_methods[scoped_key] and #string_args >= 2 then
+            func_type = 'view'
+            target_string = string_args[2]
+
+            -- Route static methods
+        elseif scope_lower == 'route' then
+            if method_lower == 'controller' and #string_args >= 1 then
+                func_type = 'controller'
+                target_string = string_args[1]
+            elseif method_lower:match('^(get|post|put|patch|delete|options|head|any|match|redirect|resource|apiresource)$') then
+                if #string_args >= 2 and string_args[2]:match('^[%l_][%w_]*$') then
+                    func_type = 'controller_method'
+                    target_string = string_args[2]
+                else
+                    func_type = 'route'
+                    target_string = string_args[1]
+                end
             end
 
             -- Inertia static methods
@@ -976,6 +1054,8 @@ function ts_utils.goto_laravel_string_ts()
         M.goto_asset(call_info.partial)
     elseif call_info.func == 'controller' then
         M.goto_controller(call_info.partial)
+    elseif call_info.func == 'controller_method' then
+        M.goto_controller_method(call_info.partial)
     elseif call_info.func == 'path' then
         -- Handle Laravel path helpers - could navigate to directories
         return false -- Not implemented yet
@@ -1248,6 +1328,96 @@ function M.goto_controller(controller_name)
     end
 end
 
+-- Navigate to controller method (used in Route::controller() groups)
+-- Finds the controller from the route group context and jumps to the method
+function M.goto_controller_method(method_name)
+    if not method_name or method_name == '' then
+        ui.warn('No method name provided')
+        return
+    end
+
+    local root = get_project_root()
+    if not root then
+        ui.error('Not in a Laravel project')
+        return
+    end
+
+    -- Try to find the controller from the surrounding Route::controller() call
+    -- by scanning the current buffer upward from cursor position
+    local controller_name = nil
+    local current_line = vim.fn.line('.')
+    local lines = vim.api.nvim_buf_get_lines(0, 0, current_line, false)
+
+    -- Search backward for Route::controller(SomeController::class)
+    for i = #lines, 1, -1 do
+        local match = lines[i]:match('Route%s*::%s*controller%s*%(([%w_\\]+)%s*::%s*class%)')
+        if match then
+            -- Extract just the class name (without namespace)
+            controller_name = match:match('([%w_]+)$')
+            break
+        end
+        -- Also check for ->controller(SomeController::class) chained pattern
+        match = lines[i]:match('->%s*controller%s*%(([%w_\\]+)%s*::%s*class%)')
+        if match then
+            controller_name = match:match('([%w_]+)$')
+            break
+        end
+    end
+
+    if not controller_name then
+        -- Fallback: try treesitter to find controller in parent scope
+        local parser_ok, _ = pcall(ts_utils.get_parser)
+        if parser_ok then
+            local ok, tree = pcall(function()
+                local parser = ts_utils.get_parser()
+                return parser and parser:parse()[1]
+            end)
+            if ok and tree then
+                local tree_root = tree:root()
+                local cursor_row = vim.fn.line('.') - 1
+                local cursor_col = vim.fn.col('.') - 1
+                local cursor_node = tree_root:descendant_for_range(cursor_row, cursor_col, cursor_row, cursor_col)
+                if cursor_node then
+                    controller_name = ts_utils.find_controller_from_group(cursor_node)
+                end
+            end
+        end
+    end
+
+    if not controller_name then
+        ui.warn('Could not find controller for method: ' .. method_name .. '. Not inside a Route::controller() group?')
+        return
+    end
+
+    -- Find the controller file
+    local controllers = M.find_controllers()
+    local found_controller = nil
+
+    for _, controller in ipairs(controllers) do
+        if controller.name == controller_name or controller.name:lower() == controller_name:lower() then
+            found_controller = controller
+            break
+        end
+    end
+
+    if not found_controller then
+        ui.error('Controller not found: ' .. controller_name)
+        return
+    end
+
+    -- Open controller file and navigate to the method
+    vim.cmd('edit ' .. found_controller.path)
+
+    -- Search for the method definition
+    local method_pattern = 'function%s+' .. vim.pesc(method_name) .. '%s*%('
+    local search_result = vim.fn.search(method_pattern, 'w')
+    if search_result > 0 then
+        vim.cmd('normal! zz')
+    else
+        ui.warn('Method "' .. method_name .. '" not found in ' .. controller_name)
+    end
+end
+
 -- Navigate to model
 function M.goto_model(model_name)
     if not model_name or model_name == '' then
@@ -1431,11 +1601,16 @@ function M.goto_laravel_string()
     local col = vim.fn.col('.')
 
     -- Only handle the most obvious regex patterns as absolute fallback
+    -- Order matters: more specific patterns first
     local basic_extractions = {
-        { pattern = "route%s*%(%s*['\"]([^'\"]+)['\"]",                                  func = 'route' },
-        { pattern = "view%s*%(%s*['\"]([^'\"]+)['\"]",                                   func = 'view' },
+        -- Route::view('/uri', 'view.name') - extract the VIEW (second arg)
+        { pattern = "Route::view%s*%(%s*['\"][^'\"]*['\"]%s*,%s*['\"]([^'\"]+)['\"]",    func = 'view' },
         { pattern = "Route::inertia%s*%(%s*['\"][^'\"]*['\"]%s*,%s*['\"]([^'\"]+)['\"]", func = 'view' },
-        { pattern = "Inertia::render%s*%(%s*['\"]([^'\"]+)['\"]",                        func = 'view' }
+        { pattern = "Inertia::render%s*%(%s*['\"]([^'\"]+)['\"]",                        func = 'view' },
+        { pattern = "route%s*%(%s*['\"]([^'\"]+)['\"]",                                  func = 'route' },
+        -- Generic view() helper - must NOT match Route::view()
+        { pattern = "[^:]view%s*%(%s*['\"]([^'\"]+)['\"]",                               func = 'view' },
+        { pattern = "^view%s*%(%s*['\"]([^'\"]+)['\"]",                                  func = 'view' },
     }
 
     for _, extraction in ipairs(basic_extractions) do
@@ -1463,6 +1638,21 @@ function M.goto_laravel_string_regex_legacy()
     return false
 end
 
+-- Collect all route files in the routes/ directory
+local function get_all_route_files(root)
+    local routes_dir = root .. '/routes'
+    if vim.fn.isdirectory(routes_dir) == 0 then
+        return {}
+    end
+
+    local files = vim.fn.glob(routes_dir .. '/**/*.php', false, true)
+    if not files or #files == 0 then
+        return {}
+    end
+
+    return files
+end
+
 -- Navigate to route definition by name
 function M.goto_route_definition(route_name)
     if not route_name or route_name == '' then
@@ -1476,24 +1666,17 @@ function M.goto_route_definition(route_name)
         return
     end
 
-
-
-    local route_files = {
-        root .. '/routes/web.php',
-        root .. '/routes/api.php',
-        root .. '/routes/channels.php',
-        root .. '/routes/console.php'
-    }
+    local route_files = get_all_route_files(root)
 
     local found = false
     for _, route_file in ipairs(route_files) do
         if vim.fn.filereadable(route_file) == 1 then
             local lines = vim.fn.readfile(route_file)
-            local pattern = '->name%s*%(%s*[\'"]' .. vim.pesc(route_name) .. '[\'"]'
+            local name_pattern = '->name%s*%(%s*[\'"]' .. vim.pesc(route_name) .. '[\'"]'
 
-            -- First try: Look for exact line matches
+            -- First try: Look for exact ->name() matches on a single line
             for i = 1, #lines do
-                if lines[i]:match(pattern) then
+                if lines[i]:match(name_pattern) then
                     vim.cmd('edit ' .. route_file)
                     vim.fn.cursor(i, 1)
                     vim.cmd('normal! zz')
@@ -1502,9 +1685,9 @@ function M.goto_route_definition(route_name)
                 end
             end
 
-            -- Second try: Join lines in windows of 3 to catch multi-line route definitions
+            -- Second try: Join lines in windows of 5 to catch multi-line route definitions
             if not found then
-                local window = 3
+                local window = 5
                 for i = 1, #lines do
                     local chunk = {}
                     local chunk_lines = {}
@@ -1516,10 +1699,10 @@ function M.goto_route_definition(route_name)
                     end
                     local joined = table.concat(chunk, ' ')
 
-                    if joined:match(pattern) then
+                    if joined:match(name_pattern) then
                         -- Find which specific line in the chunk contains the name
                         local target_line = i
-                        for k, line_num in ipairs(chunk_lines) do
+                        for _, line_num in ipairs(chunk_lines) do
                             if lines[line_num]:match('->name') then
                                 target_line = line_num
                                 break
@@ -1534,6 +1717,39 @@ function M.goto_route_definition(route_name)
                     end
                 end
             end
+
+            -- Third try: Handle group name prefixes (e.g., Route::name('prefix.')->group(...))
+            -- Search for the route name suffix inside a named group
+            if not found and route_name:find('%.') then
+                local parts = {}
+                for part in route_name:gmatch('[^%.]+') do
+                    table.insert(parts, part)
+                end
+
+                if #parts >= 2 then
+                    local suffix = parts[#parts]
+                    local suffix_pattern = '->name%s*%(%s*[\'"]' .. vim.pesc(suffix) .. '[\'"]'
+
+                    for i = 1, #lines do
+                        if lines[i]:match(suffix_pattern) then
+                            -- Verify we're inside a named group with the right prefix
+                            local prefix = table.concat(parts, '.', 1, #parts - 1) .. '.'
+                            for j = math.max(1, i - 20), i - 1 do
+                                local group_pattern = 'name%s*%(%s*[\'"]' .. vim.pesc(prefix) .. '[\'"]'
+                                if lines[j]:match(group_pattern) then
+                                    vim.cmd('edit ' .. route_file)
+                                    vim.fn.cursor(i, 1)
+                                    vim.cmd('normal! zz')
+                                    found = true
+                                    break
+                                end
+                            end
+                            if found then break end
+                        end
+                    end
+                end
+            end
+
             if found then break end
         end
     end

@@ -2,9 +2,9 @@
 
 A comprehensive Laravel development plugin for Neovim, inspired by Laravel Idea for PhpStorm. This plugin provides intelligent navigation, autocompletion, and development tools specifically designed for Laravel projects.
 
-## ⚠️ Important Notice
+## Supported Laravel Versions
 
-This plugin is currently in active development, and you may encounter bugs. Please report any issues you encounter.
+Laravel 10, 11, and 12 are fully supported. If you encounter any issues, please open a GitHub issue.
 
 ## ✨ Features
 
@@ -24,6 +24,7 @@ This plugin is currently in active development, and you may encounter bugs. Plea
   - Translations: `__('auth.failed')` → lang/en/auth.php
   - Environment variables: `env('APP_NAME')` → .env file
   - Controllers: `UserController::class` → app/Http/Controllers/UserController.php
+  - Controller methods in route groups: `Route::controller(Ctrl::class)->group(...)` → controller method
   - Static method calls: `Route::get()`, `Inertia::render()`, `Config::get()`
   - Method chaining: `->name()`, `->middleware()`, `->where()`
   - Laravel globals: `auth()`, `request()`, `session()`, etc.
@@ -531,6 +532,12 @@ $debug = env('APP_DEBUG'); // → .env file (to APP_DEBUG line)
 ```php
 // Navigate to controller classes
 Route::get('/users', UserController::class); // → app/Http/Controllers/UserController.php
+
+// Navigate to controller methods in Route::controller() groups
+Route::controller(ImportController::class)->group(function () {
+    Route::get('/import', 'index');   // Press 'gd' on 'index' → ImportController::index()
+    Route::post('/import', 'submit'); // Press 'gd' on 'submit' → ImportController::submit()
+});
 ```
 
 ### Autocompletion Examples

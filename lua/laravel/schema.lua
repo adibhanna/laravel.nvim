@@ -149,7 +149,52 @@ function M.parse_migration(file_path)
                 { pattern = "%$table%->decimal%s*%(%s*['\"]([^'\"]+)['\"]",  type = 'decimal' },
                 { pattern = "%$table%->date%s*%(%s*['\"]([^'\"]+)['\"]",     type = 'date' },
                 { pattern = "%$table%->datetime%s*%(%s*['\"]([^'\"]+)['\"]", type = 'datetime' },
-                { pattern = "%$table%->enum%s*%(%s*['\"]([^'\"]+)['\"]",     type = 'enum' },
+                { pattern = "%$table%->enum%s*%(%s*['\"]([^'\"]+)['\"]",         type = 'enum' },
+                { pattern = "%$table%->uuid%s*%(%s*['\"]([^'\"]+)['\"]",         type = 'uuid' },
+                { pattern = "%$table%->ulid%s*%(%s*['\"]([^'\"]+)['\"]",         type = 'ulid' },
+                { pattern = "%$table%->foreignId%s*%(%s*['\"]([^'\"]+)['\"]",    type = 'foreignId' },
+                { pattern = "%$table%->foreignUlid%s*%(%s*['\"]([^'\"]+)['\"]",  type = 'foreignUlid' },
+                { pattern = "%$table%->foreignUuid%s*%(%s*['\"]([^'\"]+)['\"]",  type = 'foreignUuid' },
+                { pattern = "%$table%->float%s*%(%s*['\"]([^'\"]+)['\"]",        type = 'float' },
+                { pattern = "%$table%->double%s*%(%s*['\"]([^'\"]+)['\"]",       type = 'double' },
+                { pattern = "%$table%->binary%s*%(%s*['\"]([^'\"]+)['\"]",       type = 'binary' },
+                { pattern = "%$table%->char%s*%(%s*['\"]([^'\"]+)['\"]",         type = 'char' },
+                { pattern = "%$table%->mediumText%s*%(%s*['\"]([^'\"]+)['\"]",   type = 'mediumText' },
+                { pattern = "%$table%->longText%s*%(%s*['\"]([^'\"]+)['\"]",     type = 'longText' },
+                { pattern = "%$table%->tinyInteger%s*%(%s*['\"]([^'\"]+)['\"]",  type = 'tinyInteger' },
+                { pattern = "%$table%->smallInteger%s*%(%s*['\"]([^'\"]+)['\"]", type = 'smallInteger' },
+                { pattern = "%$table%->mediumInteger%s*%(%s*['\"]([^'\"]+)['\"]", type = 'mediumInteger' },
+                { pattern = "%$table%->unsignedBigInteger%s*%(%s*['\"]([^'\"]+)['\"]", type = 'unsignedBigInteger' },
+                { pattern = "%$table%->ipAddress%s*%(%s*['\"]([^'\"]+)['\"]",    type = 'ipAddress' },
+                { pattern = "%$table%->macAddress%s*%(%s*['\"]([^'\"]+)['\"]",   type = 'macAddress' },
+                { pattern = "%$table%->year%s*%(%s*['\"]([^'\"]+)['\"]",         type = 'year' },
+                { pattern = "%$table%->time%s*%(%s*['\"]([^'\"]+)['\"]",         type = 'time' },
+                { pattern = "%$table%->jsonb%s*%(%s*['\"]([^'\"]+)['\"]",        type = 'jsonb' },
+                {
+                    pattern = "%$table%->rememberToken%s*%(%s*%)",
+                    type = 'string',
+                    name = function() return 'remember_token' end
+                },
+                {
+                    pattern = "%$table%->nullableTimestamps%s*%(%s*%)",
+                    type = 'timestamps',
+                    name = function() return 'created_at,updated_at' end
+                },
+                {
+                    pattern = "%$table%->morphs%s*%(%s*['\"]([^'\"]+)['\"]",
+                    type = 'morphs',
+                    name = function(match) return match .. '_type,' .. match .. '_id' end
+                },
+                {
+                    pattern = "%$table%->ulidMorphs%s*%(%s*['\"]([^'\"]+)['\"]",
+                    type = 'ulidMorphs',
+                    name = function(match) return match .. '_type,' .. match .. '_id' end
+                },
+                {
+                    pattern = "%$table%->uuidMorphs%s*%(%s*['\"]([^'\"]+)['\"]",
+                    type = 'uuidMorphs',
+                    name = function(match) return match .. '_type,' .. match .. '_id' end
+                },
             }
 
             for _, col_pattern in ipairs(column_patterns) do
@@ -258,17 +303,40 @@ function M.generate_mermaid_diagram(all_schema_info)
                     id = 'int',
                     string = 'varchar',
                     text = 'text',
+                    mediumText = 'text',
+                    longText = 'text',
+                    char = 'char',
                     integer = 'int',
+                    tinyInteger = 'tinyint',
+                    smallInteger = 'smallint',
+                    mediumInteger = 'mediumint',
                     bigInteger = 'bigint',
+                    unsignedBigInteger = 'bigint',
                     boolean = 'boolean',
                     timestamp = 'timestamp',
                     timestamps = 'timestamp',
                     softDeletes = 'timestamp',
                     json = 'json',
+                    jsonb = 'jsonb',
                     decimal = 'decimal',
+                    float = 'float',
+                    double = 'double',
                     date = 'date',
                     datetime = 'datetime',
-                    enum = 'enum'
+                    time = 'time',
+                    year = 'year',
+                    enum = 'enum',
+                    binary = 'binary',
+                    uuid = 'uuid',
+                    ulid = 'ulid',
+                    foreignId = 'bigint',
+                    foreignUlid = 'ulid',
+                    foreignUuid = 'uuid',
+                    ipAddress = 'varchar',
+                    macAddress = 'varchar',
+                    morphs = 'varchar',
+                    ulidMorphs = 'ulid',
+                    uuidMorphs = 'uuid',
                 }
 
                 local mermaid_type = type_mapping[column.type] or column.type

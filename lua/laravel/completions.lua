@@ -35,13 +35,11 @@ local function get_route_names()
     if not root then return {} end
 
     local route_names = {}
-    local route_files = {
-        root .. '/routes/web.php',
-        root .. '/routes/api.php',
-        root .. '/routes/auth.php',
-        root .. '/routes/channels.php',
-        root .. '/routes/console.php'
-    }
+    local routes_dir = root .. '/routes'
+    local route_files = {}
+    if vim.fn.isdirectory(routes_dir) == 1 then
+        route_files = vim.fn.glob(routes_dir .. '/**/*.php', false, true)
+    end
 
     for _, route_file in ipairs(route_files) do
         if vim.fn.filereadable(route_file) == 1 then

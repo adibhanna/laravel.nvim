@@ -153,9 +153,24 @@ function M.goto_view(view_name)
         if not root then return end
 
         -- 1. Try Blade view file (traditional Laravel views)
-        local blade_path = root .. '/resources/views/' .. view_name:gsub('%.', '/') .. '.blade.php'
+        local view_rel = view_name:gsub('%.', '/')
+        local blade_path = root .. '/resources/views/' .. view_rel .. '.blade.php'
         if vim.fn.filereadable(blade_path) == 1 then
             vim.cmd('edit ' .. blade_path)
+            return
+        end
+
+        -- 1b. Try Livewire Volt pages directory
+        local volt_path = root .. '/resources/views/pages/' .. view_rel .. '.blade.php'
+        if vim.fn.filereadable(volt_path) == 1 then
+            vim.cmd('edit ' .. volt_path)
+            return
+        end
+
+        -- 1c. Try Livewire components directory
+        local livewire_path = root .. '/resources/views/livewire/' .. view_rel .. '.blade.php'
+        if vim.fn.filereadable(livewire_path) == 1 then
+            vim.cmd('edit ' .. livewire_path)
             return
         end
 

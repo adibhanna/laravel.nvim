@@ -11,27 +11,31 @@ Laravel 10, 11, and 12 are fully supported. If you encounter any issues, please 
 ### 🧭 Smart Navigation
 
 - **Go to Definition (`gd`)**: Navigate to Laravel resources with intelligent context awareness
-  - **Treesitter-powered parsing**: Uses Neovim's treesitter for accurate AST-based code analysis
+  - **Treesitter-powered parsing**: Uses Neovim's built-in treesitter for accurate AST-based code analysis
   - **Intelligent fallback**: Gracefully falls back to regex patterns when treesitter is unavailable
   - **Multi-line support**: Handles complex chained method calls and multi-line function definitions
   - **40+ Laravel function patterns**: Comprehensive support for Laravel helpers and facades
+  - **Works with Snacks Picker, Telescope, and other LSP plugins**: Properly overrides `gd` without conflicts
   
   **Supported navigation targets:**
-  - Routes: `route('dashboard')` → routes/web.php
+  - Routes: `route('dashboard')` → routes/web.php (scans all `routes/**/*.php` files)
+  - Route views: `Route::view('/about', 'pages.about')` → resources/views/pages/about.blade.php
   - Views: `view('users.index')` → resources/views/users/index.blade.php
+  - Livewire Volt: `Volt::route('settings', 'settings.profile')` → resources/views/pages/settings/profile.blade.php
   - Inertia: `Inertia::render('Dashboard')` → resources/js/Pages/Dashboard.tsx
   - Config: `config('app.name')` → config/app.php
   - Translations: `__('auth.failed')` → lang/en/auth.php
   - Environment variables: `env('APP_NAME')` → .env file
   - Controllers: `UserController::class` → app/Http/Controllers/UserController.php
   - Controller methods in route groups: `Route::controller(Ctrl::class)->group(...)` → controller method
+  - Route group name prefixes: `Route::name('admin.')->group(...)` with `->name('users')` → resolves `admin.users`
   - Static method calls: `Route::get()`, `Inertia::render()`, `Config::get()`
   - Method chaining: `->name()`, `->middleware()`, `->where()`
   - Laravel globals: `auth()`, `request()`, `session()`, etc.
 
 ### 🔍 Intelligent Autocompletion
 
-- **Route names**: Auto-complete from your route definitions
+- **Route names**: Auto-complete from all your route files (`routes/**/*.php`)
 - **View names**: Complete Blade templates and Inertia components
 - **Config keys**: Complete configuration keys from config files
 - **Translation keys**: Complete translation keys from language files
@@ -304,25 +308,22 @@ use {
 
 ## 📋 Requirements
 
-### Treesitter Support (Recommended)
+- **Neovim 0.9+** (uses built-in treesitter API)
+- **PHP treesitter parser**: Required for accurate navigation
 
-For optimal navigation accuracy, this plugin leverages **Neovim's treesitter** for intelligent PHP code parsing:
+### Treesitter Setup
 
-- **Treesitter PHP parser**: Install via `:TSInstall php` for best navigation experience
-- **Automatic fallback**: Plugin gracefully falls back to regex parsing if treesitter is unavailable
-- **Enhanced accuracy**: Treesitter provides AST-based parsing for precise function call detection
-- **Multi-line support**: Handles complex Laravel patterns across multiple lines
+The plugin uses Neovim's **built-in treesitter** (no `nvim-treesitter` plugin required). You just need the PHP parser installed:
 
-**Quick setup:**
 ```vim
-" Install PHP treesitter parser
+" If you have nvim-treesitter:
 :TSInstall php
 
-" Verify installation
-:TSInstallInfo php
+" Or install directly (Neovim 0.10+):
+:lua vim.treesitter.require_language('php')
 ```
 
-> **Note**: While treesitter is highly recommended for the best experience, the plugin will work without it using regex-based parsing as a fallback.
+> **Note**: The plugin falls back to regex parsing if treesitter is unavailable, but treesitter is strongly recommended for accurate results.
 
 ## ⚙️ Configuration
 
@@ -538,6 +539,16 @@ Route::controller(ImportController::class)->group(function () {
     Route::get('/import', 'index');   // Press 'gd' on 'index' → ImportController::index()
     Route::post('/import', 'submit'); // Press 'gd' on 'submit' → ImportController::submit()
 });
+```
+
+#### Route View Navigation
+
+```php
+// Route::view navigates to the view (second argument)
+Route::view('/about', 'pages.about');  // → resources/views/pages/about.blade.php
+
+// Livewire Volt components
+Volt::route('settings', 'settings.profile');  // → resources/views/pages/settings/profile.blade.php
 ```
 
 ### Autocompletion Examples
